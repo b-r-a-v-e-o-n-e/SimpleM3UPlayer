@@ -9,6 +9,10 @@ import android.os.Environment;
 import android.graphics.Rect;
 import android.view.MotionEvent;
 import android.widget.EditText;
+import android.text.Editable;
+import android.text.TextWatcher;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
 import java.io.File;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -81,12 +85,17 @@ public class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final List<Channel> channels = new ArrayList<>();
     private final List<TextView> channelRows = new ArrayList<>();
+    private final List<Integer> visibleChannelIndices = new ArrayList<>();
     private SharedPreferences prefs;
     private ExoPlayer player;
     private PlayerView playerView;
     private FrameLayout mainFrame, videoFrame;
     private LinearLayout sidebar, channelList, controlBar, buttonsRow, topBar;
     private ScrollView channelScroll;
+    private EditText channelSearch;
+    private TextView searchCount;
+    private String searchQuery = "";
+    private int searchHighlightIndex = -1;
     private TextView stateLabel, playlistButton, retryAttemptsValue, retryDelayValue, fullButton;
     private LinearLayout statusBar;
     private ProgressBar spinner;
@@ -275,6 +284,44 @@ public class MainActivity extends Activity {
         View divider = new View(this);
         divider.setBackgroundColor(DIVIDER);
         sidebar.addView(divider,new LinearLayout.LayoutParams(-1,dp(1)));
+        LinearLayout searchArea = new LinearLayout(this);
+        searchArea.setOrientation(LinearLayout.VERTICAL);
+        searchArea.setPadding(dp(8), dp(8), dp(8), dp(6));
+        channelSearch = new EditText(this);
+        channelSearch.setSingleLine(true);
+        channelSearch.setTextSize(14);
+        channelSearch.setTextColor(Color.WHITE);
+        channelSearch.setHintTextColor(MUTED);
+        channelSearch.setHint("Search name or #");
+        channelSearch.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+        channelSearch.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
+        channelSearch.setPadding(dp(10), 0, dp(10), 0);
+        channelSearch.setBackground(outline(SURFACE, ACCENT, 5));
+        channelSearch.setFocusable(true);
+        channelSearch.setContentDescription("Search channels by name or number");
+        searchArea.addView(channelSearch, new LinearLayout.LayoutParams(-1,dp(44)));
+        searchCount = text("", 12, MUTED);
+        searchCount.setPadding(dp(4), dp(5), 0, 0);
+        searchArea.addView(searchCount,new LinearLayout.LayoutParams(-1,dp(23)));
+        sidebar.addView(searchArea,new LinearLayout.LayoutParams(-1,-2));
+        channelSearch.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s,int start,int count,int after) {}
+            @Override public void onTextChanged(CharSequence s,int start,int before,int count) {
+                searchQuery = s.toString().trim();
+                searchHighlightIndex = -1;
+                populateChannels();
+            }
+            @Override public void afterTextChanged(Editable e) {}
+        });
+        channelSearch.setOnEditorActionListener((v, actionId, event) -> {
+            if (actionId == EditorInfo.IME_ACTION_SEARCH ||
+                (event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER)) {
+                dismissKeyboard();
+                focusHighlightedResult();
+                return true;
+            }
+            return false;
+        });
         channelScroll = new ScrollView(this);
         channelScroll.setFillViewport(true);
         channelScroll.setDescendantFocusability(android.view.ViewGroup.FOCUS_AFTER_DESCENDANTS);
@@ -325,7 +372,10 @@ public class MainActivity extends Activity {
         next.setOnClickListener(v -> { pingControls(); move(1); });
         toggleList.setOnClickListener(v -> {
             pingControls(); setListVisible(!showList);
-            if(showList && !channelRows.isEmpty()) channelRows.get(Math.max(0,index)).requestFocus();
+            if (showList) {
+                if (!searchQuery.isEmpty()) channelSearch.requestFocus();
+                else focusHighlightedResult();
+            }
         });
         openButton.setOnClickListener(v -> { pingControls(); pickPlaylist(); });
         settingsButton.setOnClickListener(v -> { pingControls(); showSettings(); });
@@ -456,7 +506,7 @@ public class MainActivity extends Activity {
         TextView app = bold("Simple M3U TV", 19, Color.WHITE);
         app.setGravity(Gravity.CENTER);
         content.addView(app, new LinearLayout.LayoutParams(-1, -2));
-        TextView version = text("Version 1.7.2", 15, MUTED);
+        TextView version = text("Version 1.8.0", 15, MUTED);
         version.setGravity(Gravity.CENTER);
         version.setPadding(0, dp(5), 0, dp(6));
         content.addView(version, new LinearLayout.LayoutParams(-1, -2));
@@ -704,6 +754,9 @@ public class MainActivity extends Activity {
             retryCount = 0;
             failureCount = 0;
             playlistButton.setText("Channels (" + channels.size() + ")");
+            searchQuery = "";
+            searchHighlightIndex = -1;
+            if (channelSearch != null) channelSearch.setText("");
             populateChannels();
             updateButtons();
             return true;
@@ -721,49 +774,93 @@ public class MainActivity extends Activity {
         }
     }
 
+    // Search never calls selectChannel(): only an explicit row click/OK starts playback.
     private void populateChannels() {
+        if (channelList == null) return;
         channelList.removeAllViews();
         channelRows.clear();
+        visibleChannelIndices.clear();
+        String query = searchQuery.toLowerCase(Locale.ROOT);
+        boolean filtering = !query.isEmpty();
+        boolean numberSearch = query.matches("[0-9]+");
         for (int i = 0; i < channels.size(); i++) {
+            Channel ch = channels.get(i);
+            boolean match = !filtering || ch.name.toLowerCase(Locale.ROOT).contains(query) ||
+                (numberSearch && String.valueOf(i + 1).equals(query));
+            if (!match) continue;
+            visibleChannelIndices.add(i);
             final int at = i;
-            TextView t = text((i + 1) + ". " + channels.get(i).name, 12, Color.rgb(215, 215, 215));
+            TextView t = text((i + 1) + ". " + ch.name, 12, Color.rgb(215, 215, 215));
             t.setFocusable(true);
             t.setFocusableInTouchMode(false);
-            t.setOnFocusChangeListener((v, focused) -> highlightSelected());
+            t.setOnFocusChangeListener((v, focused) -> {
+                if (focused && filtering) searchHighlightIndex = at;
+                highlightSelected();
+            });
             t.setSingleLine(true);
             t.setEllipsize(TextUtils.TruncateAt.END);
             t.setPadding(dp(12), 0, dp(8), 0);
             channelList.addView(t, new LinearLayout.LayoutParams(-1, dp(52)));
             t.setOnClickListener(v -> {
                 pingControls();
+                dismissKeyboard();
                 retryCount = 0;
                 selectChannel(at, true);
             });
             channelRows.add(t);
         }
+        if (filtering && !visibleChannelIndices.isEmpty() && searchHighlightIndex == -1)
+            searchHighlightIndex = visibleChannelIndices.get(0);
+        if (searchCount != null) searchCount.setText(filtering
+            ? visibleChannelIndices.size() + " matching channel(s)"
+            : channels.size() + " channels");
+        if (visibleChannelIndices.isEmpty() && filtering) {
+            TextView empty = text("No matching channels", 13, MUTED);
+            empty.setGravity(Gravity.CENTER);
+            channelList.addView(empty,new LinearLayout.LayoutParams(-1,dp(60)));
+        }
+        if (channelScroll != null) channelScroll.scrollTo(0,0);
         highlightSelected();
     }
 
     private void highlightSelected() {
-        for (int i = 0; i < channelRows.size(); i++) {
-            TextView t = channelRows.get(i);
-            boolean selected = i == index;
+        boolean filtering = !searchQuery.isEmpty();
+        for (int row = 0; row < channelRows.size(); row++) {
+            TextView t = channelRows.get(row);
+            int channelAt = visibleChannelIndices.get(row);
+            boolean highlighted = filtering ? channelAt == searchHighlightIndex : channelAt == index;
             boolean focused = t.hasFocus();
-            t.setBackground(outline(selected ? ACTIVE : (focused ? PANEL_LIGHT : PANEL), focused ? ACCENT : (selected ? ACTIVE : PANEL), 2));
-            t.setTextColor(selected ? Color.BLACK : (focused ? Color.WHITE : Color.rgb(215, 215, 215)));
-            t.setTypeface(null, selected ? Typeface.BOLD : Typeface.NORMAL);
+            t.setBackground(outline(highlighted ? ACTIVE : (focused ? PANEL_LIGHT : PANEL),
+                focused ? ACCENT : (highlighted ? ACTIVE : PANEL), 2));
+            t.setTextColor(highlighted ? Color.BLACK : (focused ? Color.WHITE : Color.rgb(215,215,215)));
+            t.setTypeface(null, highlighted ? Typeface.BOLD : Typeface.NORMAL);
         }
-        if (index >= 0 && index < channelRows.size()) {
-            View target = channelRows.get(index);
+        int scrollTo = filtering ? searchHighlightIndex : index;
+        int row = visibleChannelIndices.indexOf(scrollTo);
+        if (row >= 0 && row < channelRows.size() && channelScroll != null) {
+            View target = channelRows.get(row);
             channelScroll.post(() -> {
+                if (row >= channelRows.size() || channelRows.get(row) != target) return;
                 int y = target.getTop();
                 int scrollY = channelScroll.getScrollY();
                 int viewport = channelScroll.getHeight();
-                if (y < scrollY || y + target.getHeight() > scrollY + viewport) {
-                    channelScroll.smoothScrollTo(0, Math.max(0, y - viewport / 3));
-                }
+                if (y < scrollY || y + target.getHeight() > scrollY + viewport)
+                    channelScroll.smoothScrollTo(0, Math.max(0,y - viewport / 3));
             });
         }
+    }
+
+    private void dismissKeyboard() {
+        InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (imm != null && channelSearch != null)
+            imm.hideSoftInputFromWindow(channelSearch.getWindowToken(),0);
+    }
+
+    private void focusHighlightedResult() {
+        int target = searchQuery.isEmpty() ? index : searchHighlightIndex;
+        int row = visibleChannelIndices.indexOf(target);
+        if (row < 0 && !channelRows.isEmpty()) row = 0;
+        if (row >= 0 && row < channelRows.size()) channelRows.get(row).requestFocus();
     }
 
     private void updateButtons() {
@@ -786,6 +883,7 @@ public class MainActivity extends Activity {
             retryCount = 0;
         }
         index = newIndex;
+        if (!searchQuery.isEmpty() && visibleChannelIndices.contains(newIndex)) searchHighlightIndex = newIndex;
         startPlaybackForCurrentIndex();
     }
 
@@ -939,7 +1037,7 @@ public class MainActivity extends Activity {
             if ((key == KeyEvent.KEYCODE_DPAD_RIGHT || key == KeyEvent.KEYCODE_DPAD_LEFT)
                     && settingsOverlay == null && showList && channelRows.size() > 0
                     && (getCurrentFocus() == null || getCurrentFocus() == playerView)) {
-                channelRows.get(Math.max(0,index)).requestFocus(); return true;
+                focusHighlightedResult(); return true;
             }
         }
         return super.dispatchKeyEvent(event);
