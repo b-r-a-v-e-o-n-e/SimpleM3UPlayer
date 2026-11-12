@@ -4,7 +4,7 @@ plugins {
 
 android {
     namespace 'com.brave.simplem3uplayer'
-    compileSdk 35
+    compileSdk 36
 
     defaultConfig {
         applicationId 'com.brave.simplem3uplayer'
