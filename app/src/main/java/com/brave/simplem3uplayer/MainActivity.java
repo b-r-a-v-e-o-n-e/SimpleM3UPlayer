@@ -87,9 +87,10 @@ public class MainActivity extends Activity {
     private LinearLayout sidebar, channelList, controlBar, buttonsRow, topBar;
     private ScrollView channelScroll;
     private TextView stateLabel, playlistButton, retryAttemptsValue, retryDelayValue, fullButton;
+    private LinearLayout statusBar;
     private ProgressBar spinner;
     private Button previous, next, toggleList, fullscreenButton, retryButton, settingsButton, openButton;
-    private Switch autoSwitch, retrySwitch, fullscreenSwitch;
+    private Switch autoSwitch, retrySwitch, fullscreenSwitch, statusSwitch;
     private View settingsOverlay;
     private View settingsTrigger;
     private View topFullscreenTrigger;
@@ -107,6 +108,7 @@ public class MainActivity extends Activity {
     private boolean listBeforeFullscreen = true;
     private boolean autoSkip = false;
     private boolean retryOnFailure = true;
+    private boolean statusEnabled = true;
     private int maxRetryAttempts = 3;
     private int retryDelaySeconds = 3;
     private Runnable timeout;
@@ -124,6 +126,7 @@ public class MainActivity extends Activity {
         fullscreen = prefs.getBoolean("fullscreen", false);
         autoSkip = prefs.getBoolean("auto_skip", false);
         retryOnFailure = prefs.getBoolean("retry_failure", true);
+        statusEnabled = prefs.getBoolean("status_enabled", true);
         maxRetryAttempts = prefs.getInt("retry_attempts", 3);
         retryDelaySeconds = prefs.getInt("retry_delay", 3);
         listBeforeFullscreen = showList;
@@ -214,18 +217,25 @@ public class MainActivity extends Activity {
     }
 
     private void status(TextView dot) {
-        LinearLayout bar = new LinearLayout(this);
-        bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setPadding(dp(10), dp(2), dp(10), dp(2));
-        bar.setBackgroundColor(0xB8000000);
+        statusBar = new LinearLayout(this);
+        statusBar.setGravity(Gravity.CENTER_VERTICAL);
+        statusBar.setPadding(dp(10), dp(2), dp(10), dp(2));
+        statusBar.setBackgroundColor(0xB8000000);
         dot.setGravity(Gravity.CENTER);
-        bar.addView(dot, new LinearLayout.LayoutParams(dp(24), dp(30)));
+        statusBar.addView(dot, new LinearLayout.LayoutParams(dp(24), dp(30)));
         stateLabel = text("Select an M3U playlist", 13, Color.WHITE);
         stateLabel.setMaxLines(2);
         stateLabel.setEllipsize(TextUtils.TruncateAt.END);
-        bar.addView(stateLabel, new LinearLayout.LayoutParams(0, -1, 1));
+        statusBar.addView(stateLabel, new LinearLayout.LayoutParams(0, -1, 1));
         FrameLayout.LayoutParams st = new FrameLayout.LayoutParams(-1,dp(36), Gravity.BOTTOM);
-        videoFrame.addView(bar,st);
+        videoFrame.addView(statusBar,st);
+        updateStatusVisibility();
+    }
+
+    private void updateStatusVisibility() {
+        if (statusBar != null) {
+            statusBar.setVisibility(statusEnabled ? View.VISIBLE : View.GONE);
+        }
     }
     private void buildUi() {
         mainFrame = new FrameLayout(this);
@@ -387,7 +397,15 @@ public class MainActivity extends Activity {
         addHint(content,"Hide Android system bars and optionally the channel list.");
         fullscreenSwitch.setOnCheckedChangeListener((button,enabled) -> { if (fullscreen != enabled) toggleFullscreen(); });
         addRule(content);
-        TextView about = text("About  ·  Simple M3U TV v1.7.0\nAndroid 6.0+  ·  Powered by Media3",13,MUTED);
+        statusSwitch = createSwitch("Status Bar", statusEnabled, content);
+        addHint(content,"Show or hide the bottom playback status overlay.");
+        statusSwitch.setOnCheckedChangeListener((button, enabled) -> {
+            statusEnabled = enabled;
+            prefs.edit().putBoolean("status_enabled", enabled).apply();
+            updateStatusVisibility();
+        });
+        addRule(content);
+        TextView about = text("About  ·  Simple M3U TV v1.7.1\nAndroid 6.0+  ·  Powered by Media3",13,MUTED);
         about.setPadding(0,dp(14),0,dp(14)); content.addView(about);
         mainFrame.addView(shade,new FrameLayout.LayoutParams(-1,-1));
         settingsOverlay = shade;
