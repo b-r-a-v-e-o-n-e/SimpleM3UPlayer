@@ -12,6 +12,12 @@ import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
 import android.view.Gravity;
+import android.view.KeyEvent;
+import android.content.res.Configuration;
+import android.app.UiModeManager;
+import android.content.Context;
+import android.graphics.drawable.StateListDrawable;
+import android.widget.HorizontalScrollView;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.Button;
@@ -62,13 +68,17 @@ public class MainActivity extends Activity {
     private ExoPlayer player;
     private PlayerView playerView;
     private FrameLayout mainFrame, videoFrame;
-    private LinearLayout sidebar, channelList, controlBar;
+    private LinearLayout sidebar, channelList, controlBar, buttonsRow;
     private ScrollView channelScroll;
     private TextView stateLabel, playlistButton, retryAttemptsValue, retryDelayValue, fullButton;
     private ProgressBar spinner;
     private Button previous, next, toggleList, fullscreenButton, retryButton;
     private Switch autoSwitch, retrySwitch, fullscreenSwitch;
     private View settingsOverlay;
+    private View settingsTrigger;
+    private View topFullscreenTrigger;
+    private boolean compactUi;
+    private boolean televisionUi;
 
     private int index = -1;
     private int failureCount = 0;
@@ -98,6 +108,9 @@ public class MainActivity extends Activity {
         retryDelaySeconds = prefs.getInt("retry_delay", 3);
         listBeforeFullscreen = showList;
         if (fullscreen) showList = false;
+        UiModeManager mode = (UiModeManager) getSystemService(Context.UI_MODE_SERVICE);
+        televisionUi = mode != null && mode.getCurrentModeType() == Configuration.UI_MODE_TYPE_TELEVISION;
+        compactUi = getResources().getConfiguration().screenWidthDp < 820;
         buildUi();
         applyFullscreen();
         restorePlaylist();
@@ -120,8 +133,42 @@ public class MainActivity extends Activity {
     private Button action(String caption) {
         Button b = new Button(this); b.setText(caption); b.setAllCaps(false);
         b.setTextSize(13); b.setTextColor(Color.WHITE); b.setBackground(outline(Color.rgb(8, 12, 18), ORANGE, 11));
-        b.setMinWidth(0); b.setMinimumWidth(0); b.setPadding(dp(6), 0, dp(6), 0);
+        b.setMinWidth(0); b.setMinimumWidth(0); b.setPadding(dp(8), dp(4), dp(8), dp(4));
+        b.setSingleLine(true); b.setEllipsize(TextUtils.TruncateAt.END);
+        focusStyle(b, Color.rgb(8, 12, 18), ORANGE);
         return b;
+    }
+    private void focusStyle(View v, int regular, int focused) {
+        GradientDrawable normal = outline(regular, ORANGE, 10);
+        GradientDrawable highlight = outline(focused, Color.WHITE, 10);
+        StateListDrawable state = new StateListDrawable();
+        state.addState(new int[]{android.R.attr.state_focused}, highlight);
+        state.addState(new int[]{android.R.attr.state_pressed}, highlight);
+        state.addState(new int[]{}, normal);
+        v.setBackground(state);
+        v.setFocusable(true);
+        v.setFocusableInTouchMode(false);
+        if (v instanceof TextView) {
+            TextView text = (TextView)v;
+            text.setOnFocusChangeListener((view, hasFocus) -> text.setTextColor(hasFocus ? Color.BLACK : Color.WHITE));
+        }
+    }
+    private void focusHeader(TextView v) {
+        v.setGravity(Gravity.CENTER);
+        v.setPadding(dp(6), dp(4), dp(6), dp(4));
+        focusStyle(v, Color.rgb(4, 9, 16), ORANGE);
+    }
+    private void status(TextView dot) {
+        LinearLayout bar = new LinearLayout(this);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setPadding(dp(8), dp(2), dp(8), dp(2));
+        bar.addView(dot, new LinearLayout.LayoutParams(dp(24), -1));
+        stateLabel = text("Select an M3U playlist", compactUi ? 12 : 13, Color.WHITE);
+        stateLabel.setMaxLines(2);
+        stateLabel.setEllipsize(TextUtils.TruncateAt.END);
+        bar.addView(stateLabel, new LinearLayout.LayoutParams(0, -1, 1));
+        if (compactUi) controlBar.addView(bar, new LinearLayout.LayoutParams(-1, dp(32)));
+        else controlBar.addView(bar, new LinearLayout.LayoutParams(0, -1, 1.5f));
     }
     private void buildUi() {
         mainFrame = new FrameLayout(this); mainFrame.setBackgroundColor(Color.BLACK);
@@ -129,87 +176,119 @@ public class MainActivity extends Activity {
         mainFrame.addView(screen, new FrameLayout.LayoutParams(-1,-1));
 
         LinearLayout top = new LinearLayout(this); top.setGravity(Gravity.CENTER_VERTICAL);
-        top.setPadding(dp(14),0,dp(14),0); top.setBackgroundColor(Color.rgb(4, 9, 16));
-        TextView logo = bold("▣", 29, ORANGE);
-        top.addView(logo, new LinearLayout.LayoutParams(dp(42),-1));
-        TextView title = bold("Simple M3U TV", 23, Color.WHITE);
-        top.addView(title,new LinearLayout.LayoutParams(0,-1,1));
-        TextView settings = text("⚙  Settings",15,Color.WHITE);
-        settings.setGravity(Gravity.CENTER); settings.setPadding(dp(10),0,dp(10),0);
+        top.setPadding(dp(8), dp(3), dp(8), dp(3)); top.setBackgroundColor(Color.rgb(4, 9, 16));
+        TextView logo = bold("▣", compactUi ? 19 : 27, ORANGE);
+        logo.setGravity(Gravity.CENTER);
+        top.addView(logo, new LinearLayout.LayoutParams(dp(compactUi ? 25 : 42),-1));
+        TextView title = bold(compactUi ? "M3U TV" : "Simple M3U TV",compactUi ? 16 : 23,Color.WHITE);
+        title.setSingleLine(true); title.setEllipsize(TextUtils.TruncateAt.END);
+        top.addView(title, new LinearLayout.LayoutParams(0,-1,1));
+        TextView settings = bold(compactUi ? "⚙" : "⚙  Settings",compactUi ? 23 : 16,Color.WHITE);
+        focusHeader(settings);
+        settings.setContentDescription("Settings");
         settings.setOnClickListener(v -> showSettings());
-        top.addView(settings,new LinearLayout.LayoutParams(-2,-1));
-        TextView sep = text("│",20,DIVIDER); top.addView(sep);
-        fullButton = text("⛶  Fullscreen",15,Color.WHITE);
-        fullButton.setGravity(Gravity.CENTER);
-        fullButton.setPadding(dp(10),0,dp(10),0);
-        fullButton.setOnClickListener(v -> toggleFullscreen());
-        top.addView(fullButton,new LinearLayout.LayoutParams(-2,-1));
-        TextClock clock = new TextClock(this); clock.setFormat24Hour("HH:mm"); clock.setFormat12Hour("HH:mm");
-        clock.setTextColor(Color.WHITE); clock.setTextSize(16); clock.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
-        clock.setPadding(dp(12),0,0,0); top.addView(clock);
-        screen.addView(top,new LinearLayout.LayoutParams(-1,dp(57)));
+        top.addView(settings, new LinearLayout.LayoutParams(compactUi ? dp(48) : -2,-1));
+        settingsTrigger = settings;
+        TextView full = bold(compactUi ? "⛶" : "⛶  Fullscreen",compactUi ? 23 : 16,Color.WHITE);
+        focusHeader(full);
+        full.setContentDescription("Toggle fullscreen");
+        full.setOnClickListener(v -> toggleFullscreen());
+        top.addView(full, new LinearLayout.LayoutParams(compactUi ? dp(48) : -2,-1));
+        topFullscreenTrigger = full;
+        if (!compactUi) {
+            TextClock clock = new TextClock(this); clock.setFormat24Hour("HH:mm"); clock.setFormat12Hour("HH:mm");
+            clock.setTextColor(Color.WHITE); clock.setTextSize(16);
+            clock.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+            clock.setPadding(dp(12),0,0,0); top.addView(clock);
+        }
+        screen.addView(top, new LinearLayout.LayoutParams(-1,dp(compactUi ? 48 : 64)));
 
         LinearLayout center = new LinearLayout(this); center.setOrientation(LinearLayout.HORIZONTAL);
         videoFrame = new FrameLayout(this); videoFrame.setBackgroundColor(Color.BLACK);
         playerView = new PlayerView(this); playerView.setUseController(false); playerView.setKeepContentOnPlayerReset(true);
+        playerView.setFocusable(false);
         videoFrame.addView(playerView,new FrameLayout.LayoutParams(-1,-1));
         spinner = new ProgressBar(this);
         videoFrame.addView(spinner,new FrameLayout.LayoutParams(dp(40),dp(40),Gravity.CENTER));
         spinner.setVisibility(View.GONE);
-        videoFrame.setOnClickListener(v -> {
-            if (settingsOverlay != null) dismissSettings();
-        });
+        videoFrame.setOnClickListener(v -> { if (settingsOverlay != null) dismissSettings(); });
         center.addView(videoFrame,new LinearLayout.LayoutParams(0,-1,1));
 
         sidebar = new LinearLayout(this); sidebar.setOrientation(LinearLayout.VERTICAL);
         sidebar.setBackgroundColor(PANEL);
-        playlistButton = bold("Change playlist",12,ORANGE);
-        playlistButton.setPadding(dp(12),0,dp(6),0);
-        playlistButton.setBackgroundColor(PANEL_LIGHT);
+        playlistButton = bold("Change playlist",compactUi ? 13 : 14,ORANGE);
+        playlistButton.setPadding(dp(10),dp(4),dp(6),dp(4));
+        playlistButton.setGravity(Gravity.CENTER_VERTICAL);
+        playlistButton.setSingleLine(true); playlistButton.setEllipsize(TextUtils.TruncateAt.END);
+        focusStyle(playlistButton,PANEL_LIGHT,ORANGE);
         playlistButton.setOnClickListener(v -> pickPlaylist());
-        sidebar.addView(playlistButton,new LinearLayout.LayoutParams(-1,dp(42)));
+        sidebar.addView(playlistButton,new LinearLayout.LayoutParams(-1,dp(48)));
         View divider = new View(this); divider.setBackgroundColor(DIVIDER);
         sidebar.addView(divider,new LinearLayout.LayoutParams(-1,dp(1)));
         channelScroll = new ScrollView(this); channelScroll.setFillViewport(true);
+        channelScroll.setDescendantFocusability(android.view.ViewGroup.FOCUS_AFTER_DESCENDANTS);
         channelList = new LinearLayout(this); channelList.setOrientation(LinearLayout.VERTICAL);
         channelScroll.addView(channelList);
         sidebar.addView(channelScroll,new LinearLayout.LayoutParams(-1,0,1));
-        center.addView(sidebar,new LinearLayout.LayoutParams(dp(255),-1));
+        int sidebarWidth = compactUi ? Math.max(dp(150), getResources().getDisplayMetrics().widthPixels * 44 / 100) : dp(275);
+        center.addView(sidebar,new LinearLayout.LayoutParams(sidebarWidth,-1));
         screen.addView(center,new LinearLayout.LayoutParams(-1,0,1));
 
-        controlBar = new LinearLayout(this); controlBar.setOrientation(LinearLayout.HORIZONTAL);
-        controlBar.setGravity(Gravity.CENTER_VERTICAL); controlBar.setPadding(dp(12),dp(7),dp(12),dp(7));
+        controlBar = new LinearLayout(this);
+        controlBar.setOrientation(compactUi ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
+        controlBar.setGravity(Gravity.CENTER_VERTICAL);
+        controlBar.setPadding(dp(6),dp(4),dp(6),dp(4));
         controlBar.setBackgroundColor(Color.rgb(10, 15, 23));
-        previous = action("◀  Previous");
-        toggleList = action("☷  Channels");
-        next = action("Next  ▶");
-        fullscreenButton = action("⛶  Fullscreen");
-        retryButton = action("↻  Retry");
-        addControl(previous, 1.0f);
+        previous = action(compactUi ? "◀" : "◀  Previous");
+        toggleList = action(compactUi ? "☷" : "☷  Channels");
+        next = action(compactUi ? "▶" : "Next  ▶");
+        fullscreenButton = action(compactUi ? "⛶" : "⛶  Fullscreen");
+        retryButton = action(compactUi ? "↻" : "↻  Retry");
+        previous.setContentDescription("Previous channel");
+        toggleList.setContentDescription("Show or hide channels");
+        next.setContentDescription("Next channel");
+        fullscreenButton.setContentDescription("Toggle fullscreen");
+        retryButton.setContentDescription("Retry stream");
+        TextView dot = bold("●",20,ORANGE);
+        if (compactUi) status(dot);
+        if (compactUi) {
+            HorizontalScrollView hscroll = new HorizontalScrollView(this);
+            hscroll.setHorizontalScrollBarEnabled(false); hscroll.setFillViewport(true);
+            buttonsRow = new LinearLayout(this);
+            buttonsRow.setOrientation(LinearLayout.HORIZONTAL);
+            buttonsRow.setGravity(Gravity.CENTER_VERTICAL);
+            hscroll.addView(buttonsRow,new android.widget.FrameLayout.LayoutParams(-1,dp(49)));
+            controlBar.addView(hscroll,new LinearLayout.LayoutParams(-1,dp(50)));
+        } else {
+            buttonsRow = controlBar;
+        }
+        addControl(previous, 1f);
         addControl(toggleList, 1.1f);
-        addControl(next, 1.0f);
-        LinearLayout status = new LinearLayout(this); status.setOrientation(LinearLayout.HORIZONTAL);
-        status.setGravity(Gravity.CENTER_VERTICAL); status.setPadding(dp(12),0,dp(4),0);
-        TextView dot = bold("●",23,ORANGE); status.addView(dot,new LinearLayout.LayoutParams(dp(26),-1));
-        stateLabel = text("Select an M3U playlist",12,Color.WHITE);
-        stateLabel.setMaxLines(2); stateLabel.setEllipsize(TextUtils.TruncateAt.END);
-        status.addView(stateLabel,new LinearLayout.LayoutParams(0,-1,1));
-        controlBar.addView(status,new LinearLayout.LayoutParams(0,-1,1.8f));
-        addControl(fullscreenButton, 1.15f);
-        addControl(retryButton, 1.0f);
-        screen.addView(controlBar,new LinearLayout.LayoutParams(-1,dp(64)));
+        addControl(next, 1f);
+        if (!compactUi) status(dot);
+        addControl(fullscreenButton, 1.1f);
+        addControl(retryButton, 0.9f);
+        screen.addView(controlBar,new LinearLayout.LayoutParams(-1,dp(compactUi ? 91 : 72)));
 
         previous.setOnClickListener(v -> move(-1));
         next.setOnClickListener(v -> move(1));
-        toggleList.setOnClickListener(v -> setListVisible(!showList));
+        toggleList.setOnClickListener(v -> { setListVisible(!showList); if(showList && !channelRows.isEmpty()) channelRows.get(Math.max(0,index)).requestFocus(); });
         fullscreenButton.setOnClickListener(v -> toggleFullscreen());
         retryButton.setOnClickListener(v -> { if(index >= 0) selectChannel(index,true); });
         setContentView(mainFrame);
         updateSidebarVisibility(); updateButtons();
+        if (televisionUi) toggleList.requestFocus();
     }
     private void addControl(Button b, float weight) {
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0,dp(43),weight);
-        p.setMargins(dp(4),0,dp(4),0); controlBar.addView(b,p);
+        LinearLayout.LayoutParams p;
+        if (compactUi) {
+            // Fixed width for icon controls; never compress text when font scaling is enabled.
+            p = new LinearLayout.LayoutParams(0,dp(46),1f);
+        } else {
+            p = new LinearLayout.LayoutParams(0,dp(54),weight);
+        }
+        p.setMargins(dp(3),0,dp(3),0);
+        buttonsRow.addView(b,p);
     }
     private void showSettings() {
         if (settingsOverlay != null) return;
@@ -217,16 +296,20 @@ public class MainActivity extends Activity {
         shade.setOnClickListener(v -> dismissSettings());
         ScrollView scroll = new ScrollView(this); scroll.setFillViewport(false);
         scroll.setBackground(outline(PANEL, DIVIDER, 14));
-        FrameLayout.LayoutParams sp = new FrameLayout.LayoutParams(dp(380),-1,Gravity.LEFT | Gravity.CENTER_VERTICAL);
-        sp.setMargins(dp(20),dp(12),0,dp(12));
+        int available = getResources().getDisplayMetrics().widthPixels;
+        int popupWidth = Math.min(dp(380), Math.max(dp(220), available - dp(24)));
+        FrameLayout.LayoutParams sp = new FrameLayout.LayoutParams(popupWidth,-1,Gravity.LEFT | Gravity.CENTER_VERTICAL);
+        sp.setMargins(dp(12),dp(8),0,dp(8));
         shade.addView(scroll,sp);
         scroll.setOnClickListener(v -> {});
+        scroll.setFocusable(true);
         LinearLayout content = new LinearLayout(this); content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(dp(20),dp(12),dp(20),dp(16)); scroll.addView(content);
         LinearLayout heading = new LinearLayout(this); heading.setGravity(Gravity.CENTER_VERTICAL);
         heading.addView(bold("⚙  Settings",23,Color.WHITE),new LinearLayout.LayoutParams(0,dp(44),1));
         TextView close = bold("×",28,Color.WHITE); close.setGravity(Gravity.CENTER);
-        close.setOnClickListener(v -> dismissSettings()); heading.addView(close,new LinearLayout.LayoutParams(dp(36),dp(44)));
+        focusHeader(close);
+        close.setOnClickListener(v -> { dismissSettings(); settingsTrigger.requestFocus(); }); heading.addView(close,new LinearLayout.LayoutParams(dp(36),dp(44)));
         content.addView(heading); addRule(content);
         autoSwitch = createSwitch("Auto Next Channel", autoSkip, content);
         addHint(content,"Automatically switch to the next channel after retry attempts are exhausted.");
@@ -249,16 +332,18 @@ public class MainActivity extends Activity {
         addHint(content,"Hide Android system bars and optionally the channel list.");
         fullscreenSwitch.setOnCheckedChangeListener((button,enabled) -> { if (fullscreen != enabled) toggleFullscreen(); });
         addRule(content);
-        TextView about = text("About  ·  Simple M3U TV v1.4.0\nAndroid 6.0+  ·  Powered by Media3",13,MUTED);
+        TextView about = text("About  ·  Simple M3U TV v1.5.0\nAndroid 6.0+  ·  Powered by Media3",13,MUTED);
         about.setPadding(0,dp(14),0,dp(14)); content.addView(about);
         mainFrame.addView(shade,new FrameLayout.LayoutParams(-1,-1));
         settingsOverlay = shade;
+        if (televisionUi) close.requestFocus();
     }
     private Switch createSwitch(String name, boolean selected, LinearLayout parent) {
         Switch sw = new Switch(this); sw.setText(name); sw.setTextColor(Color.WHITE);
         sw.setTextSize(16); sw.setChecked(selected); sw.setPadding(0,dp(10),0,dp(4));
         if (android.os.Build.VERSION.SDK_INT >= 21) sw.setThumbTintList(android.content.res.ColorStateList.valueOf(ORANGE));
-        parent.addView(sw,new LinearLayout.LayoutParams(-1,dp(49))); return sw;
+        sw.setFocusable(true); sw.setMinimumHeight(dp(52));
+        parent.addView(sw,new LinearLayout.LayoutParams(-1,-2)); return sw;
     }
     private void addHint(LinearLayout parent,String message) {
         TextView hint = text(message,12,MUTED); hint.setPadding(0,0,dp(12),dp(10));
@@ -270,13 +355,13 @@ public class MainActivity extends Activity {
     }
     private TextView settingCounter(LinearLayout parent,String label,int number,boolean seconds,Runnable minus,Runnable plus) {
         LinearLayout line = new LinearLayout(this); line.setGravity(Gravity.CENTER_VERTICAL);
-        TextView name = text(label,15,Color.WHITE); line.addView(name,new LinearLayout.LayoutParams(0,dp(46),1));
+        TextView name = text(label,15,Color.WHITE); line.addView(name,new LinearLayout.LayoutParams(0,dp(56),1));
         Button down = action("‹"); line.addView(down,new LinearLayout.LayoutParams(dp(39),dp(39)));
         TextView value = bold(number + (seconds ? "s" : ""),17,Color.WHITE); value.setGravity(Gravity.CENTER);
-        line.addView(value,new LinearLayout.LayoutParams(dp(50),dp(43)));
+        line.addView(value,new LinearLayout.LayoutParams(dp(46),dp(52)));
         Button up = action("›"); line.addView(up,new LinearLayout.LayoutParams(dp(39),dp(39)));
         down.setOnClickListener(v -> minus.run()); up.setOnClickListener(v -> plus.run());
-        parent.addView(line); return value;
+        parent.addView(line,new LinearLayout.LayoutParams(-1,dp(58))); return value;
     }
     private void updateCounters() {
         if (retryAttemptsValue != null) retryAttemptsValue.setText(String.valueOf(maxRetryAttempts));
@@ -367,10 +452,13 @@ public class MainActivity extends Activity {
         for (int i = 0; i < channels.size(); i++) {
             final int at = i;
             TextView t = text((i + 1) + ". " + channels.get(i).name, 12, Color.rgb(215, 215, 215));
+            t.setFocusable(true);
+            t.setFocusableInTouchMode(false);
+            t.setOnFocusChangeListener((v, focused) -> highlightSelected());
             t.setSingleLine(true);
             t.setEllipsize(TextUtils.TruncateAt.END);
             t.setPadding(dp(12), 0, dp(8), 0);
-            channelList.addView(t, new LinearLayout.LayoutParams(-1, dp(39)));
+            channelList.addView(t, new LinearLayout.LayoutParams(-1, dp(52)));
             t.setOnClickListener(v -> {
                 retryCount = 0;
                 selectChannel(at, true);
@@ -384,8 +472,9 @@ public class MainActivity extends Activity {
         for (int i = 0; i < channelRows.size(); i++) {
             TextView t = channelRows.get(i);
             boolean selected = i == index;
-            t.setBackgroundColor(selected ? ORANGE : PANEL);
-            t.setTextColor(selected ? Color.BLACK : Color.rgb(215, 215, 215));
+            boolean focused = t.hasFocus();
+            t.setBackground(outline(selected ? ORANGE : (focused ? PANEL_LIGHT : PANEL), focused ? ORANGE : (selected ? ORANGE : PANEL), 3));
+            t.setTextColor(selected ? Color.BLACK : (focused ? Color.WHITE : Color.rgb(215, 215, 215)));
             t.setTypeface(null, selected ? Typeface.BOLD : Typeface.NORMAL);
         }
         if (index >= 0 && index < channelRows.size()) {
@@ -553,16 +642,40 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        if (televisionUi && event.getAction() == KeyEvent.ACTION_DOWN) {
+            int key = event.getKeyCode();
+            if (key == KeyEvent.KEYCODE_MEDIA_NEXT || key == KeyEvent.KEYCODE_CHANNEL_UP) {
+                move(1); return true;
+            }
+            if (key == KeyEvent.KEYCODE_MEDIA_PREVIOUS || key == KeyEvent.KEYCODE_CHANNEL_DOWN) {
+                move(-1); return true;
+            }
+            if (key == KeyEvent.KEYCODE_MENU && settingsOverlay == null) {
+                showSettings(); return true;
+            }
+            if ((key == KeyEvent.KEYCODE_DPAD_RIGHT || key == KeyEvent.KEYCODE_DPAD_LEFT)
+                    && settingsOverlay == null && showList && channelRows.size() > 0
+                    && (getCurrentFocus() == null || getCurrentFocus() == playerView)) {
+                channelRows.get(Math.max(0,index)).requestFocus(); return true;
+            }
+        }
+        return super.dispatchKeyEvent(event);
+    }
+
+    @Override
     public void onBackPressed() {
         if (settingsOverlay != null) { dismissSettings(); return; }
         if (showList) {
             setListVisible(false);
+            if (televisionUi) toggleList.requestFocus();
             return;
         }
         if (fullscreen) {
             toggleFullscreen();
             return;
         }
+        if (televisionUi) { toggleList.requestFocus(); return; }
         super.onBackPressed();
     }
 
