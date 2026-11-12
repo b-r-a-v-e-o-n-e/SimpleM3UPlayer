@@ -1,20 +1,25 @@
-# SimpleM3UPlayer 1.2.0
+# Simple M3U TV v1.3.0
 
-Android 6.0+ (minSdk 23) / Media3 ExoPlayer 1.11.1 / Java 17.
+Native Android IPTV player, compatible with Android 6.0+ (minSdk 23). Uses Media3 / ExoPlayer.
 
-## Interface
-- Black player background, dark charcoal channel sidebar on the right, orange selection and controls.
-- `◀` previous channel, `▶` next channel, `☰` show/hide channel list, `⛶` toggle fullscreen (hides system bars and the sidebar; it can still be reopened with `☰`), `↻` retry the currently selected stream.
-- Tap the video background to show/hide controls.
-- Tap **Смени плейлиста** to import a local M3U through the Android file picker.
-- Switch **Авто следващ канал**: OFF (default) stays on the channel on errors and shows Retry; ON skips channels when startup exceeds 3.2 seconds, stream ends, or an unrecoverable player error occurs. Brief normal buffering does *not* trigger automatic skipping.
-- Last playlist URI, selected channel, list visibility, fullscreen mode, and auto-skip setting persist through app restart.
-- Supports per-channel VLC `http-user-agent` and `http-referrer` options.
+## What's new
+- New launcher icon: charcoal TV with orange play button, adaptive on Android 8+ and bitmap on older phones.
+- **English-only UI**: playlist selection, controls, labels, errors, loading, buffering, retries, and messages.
+- **Automatic reconnection on interruptions**: after stream errors, ended streams, startup timeouts (3.2s), or prolonged rebuffering (8s), the player automatically reconnects to the *same* channel. Retry delays: 1.5s, 3s, 6s, 12s, then max 15s.
+- **Auto Next Channel OFF** (default): keep attempting the current channel, without needing manual Retry.
+- **Auto Next Channel ON**: retry same channel 3 times, then advance to the next channel. Stop after attempting each channel without success; manual Retry remains available.
+- A stream that resumes during short buffering is not interrupted, and normal playback resets retry counters.
 
-## Build APK (GitHub Actions)
-Push the *contents* of this folder to the repository root (including `.github/workflows/build-apk.yml`). Go to Actions > Build Android APK > Run workflow, or push to main. Download **SimpleM3UPlayer-APK** from Artifacts; inside is `app-debug.apk`.
+## Features
+- Import local M3U and M3U8 playlist using Android file picker; remember the last playlist and selected channel.
+- Black video background, dark channel panel, orange selection/controls, fullscreen toggle, channel list toggle, Previous/Next/Retry buttons.
+- Remembers fullscreen, show/hide channels, and Auto Next Channel settings.
+- Per-channel User-Agent and Referer parsing from VLC playlist options.
 
-## Build APK (Linux)
-Requires JDK 17, Android SDK platform android-36, Android build tools, Gradle 8.11.1. Run `gradle :app:assembleDebug`.
+## Build APK with GitHub Actions
+Unzip and upload the **contents inside** this folder to the repository root (replace files). Keep `.github/workflows/build-apk.yml`. Commit changes, open Actions > Build Android APK, select successful run, and download `SimpleM3UPlayer-APK` artifact. Inside: `app-debug.apk`.
 
-Notes: ExoPlayer uses the decoders installed on the device; DRM/RTSP/RTMP/UDP are not supported by the included modules. `compileSdk=36`, `targetSdk=35`, `minSdk=23`.
+## Local build
+Requires JDK 17, Gradle 8.11.1, Android SDK platform 36. Run `gradle --no-daemon :app:assembleDebug`.
+
+Android config: compileSdk 36, targetSdk 35, minSdk 23, AGP 8.10.1, Media3 1.11.1.
