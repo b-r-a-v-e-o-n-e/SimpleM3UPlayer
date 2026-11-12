@@ -1,7 +1,5 @@
-# Simple M3U TV v1.7.1
+# Simple M3U TV v1.7.2
 
-Changes in v1.7.1:
-- Added Settings option: Status Bar On/Off
-- When Status Bar is Off, the bottom status overlay is hidden
-- Fullscreen can now be completely clean when status is disabled
-- Preserves previous v1.7.0 layout, colors, and Android 7 TV playlist browser
+Updated About screen: original avatar, author Kristo^Di^Giorgio, GitHub b-r-a-v-e-o-n-e, contact info@widelogic.org, application name, version, Android 6.0 (API 23)+ compatibility. About is now a separate scrollable dialog with a Close button and remote focus support. All existing v1.7.1 behavior is retained.
+
+Build: GitHub Actions workflow from `.github/workflows/build-apk.yml`.

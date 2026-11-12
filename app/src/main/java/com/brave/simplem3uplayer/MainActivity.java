@@ -41,6 +41,7 @@ import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.TextClock;
+import android.widget.ImageView;
 
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MimeTypes;
@@ -405,13 +406,85 @@ public class MainActivity extends Activity {
             updateStatusVisibility();
         });
         addRule(content);
-        TextView about = text("About  ·  Simple M3U TV v1.7.1\nAndroid 6.0+  ·  Powered by Media3",13,MUTED);
-        about.setPadding(0,dp(14),0,dp(14)); content.addView(about);
+        TextView about = bold("About  ›", 17, Color.WHITE);
+        about.setPadding(dp(12),dp(12),dp(12),dp(12));
+        focusStyle(about, SURFACE, ACCENT);
+        about.setOnClickListener(v -> showAbout());
+        content.addView(about, new LinearLayout.LayoutParams(-1, dp(52)));
         mainFrame.addView(shade,new FrameLayout.LayoutParams(-1,-1));
         settingsOverlay = shade;
         if (hideControlsRunnable != null) handler.removeCallbacks(hideControlsRunnable);
         if (televisionUi) close.requestFocus();
     }
+    private void showAbout() {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(false);
+        scroll.setBackgroundColor(BACKGROUND);
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setGravity(Gravity.CENTER_HORIZONTAL);
+        content.setPadding(dp(20), dp(16), dp(20), dp(20));
+        scroll.addView(content);
+
+        ImageView avatar = new ImageView(this);
+        avatar.setImageResource(R.drawable.about_avatar);
+        avatar.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        avatar.setBackground(bg(Color.rgb(235, 238, 242), 8));
+        avatar.setPadding(dp(8), dp(8), dp(8), dp(8));
+        avatar.setContentDescription("Kristo^Di^Giorgio avatar");
+        content.addView(avatar, new LinearLayout.LayoutParams(dp(130), dp(160)));
+
+        TextView author = bold("Kristo^Di^Giorgio", 21, Color.WHITE);
+        author.setGravity(Gravity.CENTER);
+        content.addView(author, new LinearLayout.LayoutParams(-1, -2));
+
+        TextView github = bold("b-r-a-v-e-o-n-e", 16, ACTIVE);
+        github.setGravity(Gravity.CENTER);
+        github.setPadding(dp(8), dp(10), dp(8), dp(10));
+        github.setFocusable(true);
+        github.setOnClickListener(v -> openAboutLink("https://github.com/b-r-a-v-e-o-n-e"));
+        content.addView(github, new LinearLayout.LayoutParams(-1, -2));
+
+        TextView email = text("info@widelogic.org", 16, Color.WHITE);
+        email.setGravity(Gravity.CENTER);
+        email.setPadding(dp(8), dp(6), dp(8), dp(12));
+        email.setFocusable(true);
+        email.setOnClickListener(v -> openAboutLink("mailto:info@widelogic.org"));
+        content.addView(email, new LinearLayout.LayoutParams(-1, -2));
+
+        addRule(content);
+        TextView app = bold("Simple M3U TV", 19, Color.WHITE);
+        app.setGravity(Gravity.CENTER);
+        content.addView(app, new LinearLayout.LayoutParams(-1, -2));
+        TextView version = text("Version 1.7.2", 15, MUTED);
+        version.setGravity(Gravity.CENTER);
+        version.setPadding(0, dp(5), 0, dp(6));
+        content.addView(version, new LinearLayout.LayoutParams(-1, -2));
+        TextView compatibility = text("Android 6.0 (API 23) and newer\nPhone · Tablet · Android TV / TV Box\nPowered by Media3 / ExoPlayer", 14, MUTED);
+        compatibility.setGravity(Gravity.CENTER);
+        content.addView(compatibility, new LinearLayout.LayoutParams(-1, -2));
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setView(scroll)
+                .setPositiveButton("Close", (d, which) -> { })
+                .create();
+        dialog.setOnDismissListener(d -> showControlsTemporarily());
+        dialog.show();
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawable(bg(BACKGROUND, 8));
+            dialog.getWindow().setLayout(Math.min(dp(460), getResources().getDisplayMetrics().widthPixels - dp(24)), -2);
+        }
+        if (televisionUi) dialog.getButton(AlertDialog.BUTTON_POSITIVE).requestFocus();
+    }
+
+    private void openAboutLink(String url) {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+        } catch (Exception ex) {
+            Toast.makeText(this, "No compatible app found", Toast.LENGTH_SHORT).show();
+        }
+    }
+
     private Switch createSwitch(String name, boolean selected, LinearLayout parent) {
         Switch sw = new Switch(this); sw.setText(name); sw.setTextColor(Color.WHITE);
         sw.setTextSize(16); sw.setChecked(selected); sw.setPadding(0,dp(10),0,dp(4));
