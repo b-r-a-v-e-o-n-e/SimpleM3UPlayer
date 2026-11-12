@@ -9,3 +9,10 @@ Android TV: navigate to the Search field with the D-pad and press OK to type usi
 All previous v1.7.2 features, settings, About/avatar, Android 7 local browser, and Media3 playback are preserved. Minimum Android is still API 23 (Android 6).
 
 Build via `.github/workflows/build-apk.yml`.
+
+
+## v1.8.1 — Android TV D-pad scrolling fix
+- Orange cursor now follows the focused channel row, not the channel currently playing.
+- ScrollView keeps the focused row entirely on-screen while pressing Up/Down, including filtered Search results.
+- Auto-hide no longer steals focus from the channel list after 3 seconds.
+- All other features and Android 6.0+ compatibility preserved.

@@ -96,6 +96,7 @@ public class MainActivity extends Activity {
     private TextView searchCount;
     private String searchQuery = "";
     private int searchHighlightIndex = -1;
+    private int focusedChannelIndex = -1;
     private TextView stateLabel, playlistButton, retryAttemptsValue, retryDelayValue, fullButton;
     private LinearLayout statusBar;
     private ProgressBar spinner;
@@ -216,7 +217,24 @@ public class MainActivity extends Activity {
         if (settingsOverlay != null || fileDialog != null) return;
         controlsVisible = false;
         if (controlBar != null) controlBar.setVisibility(View.GONE);
-        if (televisionUi && videoFrame != null) videoFrame.requestFocus();
+        // Never steal D-pad focus while the user is navigating channels.
+        // Only move focus off a control that is actually being hidden.
+        if (televisionUi && videoFrame != null && controlBar != null) {
+            View focused = getCurrentFocus();
+            if (focused != null && isInsideView(focused, controlBar)) {
+                videoFrame.requestFocus();
+            }
+        }
+    }
+
+    private boolean isInsideView(View child, View parent) {
+        View current = child;
+        while (current != null) {
+            if (current == parent) return true;
+            android.view.ViewParent p = current.getParent();
+            current = p instanceof View ? (View) p : null;
+        }
+        return false;
     }
 
     private void toggleControlsVisibility() {
@@ -780,6 +798,7 @@ public class MainActivity extends Activity {
         channelList.removeAllViews();
         channelRows.clear();
         visibleChannelIndices.clear();
+        focusedChannelIndex = -1;
         String query = searchQuery.toLowerCase(Locale.ROOT);
         boolean filtering = !query.isEmpty();
         boolean numberSearch = query.matches("[0-9]+");
@@ -794,7 +813,11 @@ public class MainActivity extends Activity {
             t.setFocusable(true);
             t.setFocusableInTouchMode(false);
             t.setOnFocusChangeListener((v, focused) -> {
-                if (focused && filtering) searchHighlightIndex = at;
+                if (focused) {
+                    focusedChannelIndex = at;
+                    if (!searchQuery.isEmpty()) searchHighlightIndex = at;
+                    keepChannelVisible(t);
+                }
                 highlightSelected();
             });
             t.setSingleLine(true);
@@ -821,33 +844,57 @@ public class MainActivity extends Activity {
         }
         if (channelScroll != null) channelScroll.scrollTo(0,0);
         highlightSelected();
+        int initial = visibleChannelIndices.indexOf(filtering ? searchHighlightIndex : index);
+        if (initial >= 0 && initial < channelRows.size()) keepChannelVisible(channelRows.get(initial));
     }
 
+    /**
+     * Keep the D-pad cursor visible even when playback stays on another channel.
+     * The previously-playing index and the currently-focused list row are
+     * different things; only the focused row drives scrolling during browsing.
+     */
     private void highlightSelected() {
         boolean filtering = !searchQuery.isEmpty();
+        int cursor = filtering ? searchHighlightIndex : index;
+        boolean hasRowFocus = anyChannelRowHasFocus();
         for (int row = 0; row < channelRows.size(); row++) {
             TextView t = channelRows.get(row);
             int channelAt = visibleChannelIndices.get(row);
-            boolean highlighted = filtering ? channelAt == searchHighlightIndex : channelAt == index;
             boolean focused = t.hasFocus();
-            t.setBackground(outline(highlighted ? ACTIVE : (focused ? PANEL_LIGHT : PANEL),
-                focused ? ACCENT : (highlighted ? ACTIVE : PANEL), 2));
-            t.setTextColor(highlighted ? Color.BLACK : (focused ? Color.WHITE : Color.rgb(215,215,215)));
+            boolean highlighted = focused || (!hasRowFocus && channelAt == cursor);
+            t.setBackground(outline(highlighted ? ACTIVE : PANEL,
+                    focused ? ACCENT : (highlighted ? ACTIVE : PANEL), 2));
+            t.setTextColor(highlighted ? Color.BLACK : Color.rgb(215, 215, 215));
             t.setTypeface(null, highlighted ? Typeface.BOLD : Typeface.NORMAL);
         }
-        int scrollTo = filtering ? searchHighlightIndex : index;
-        int row = visibleChannelIndices.indexOf(scrollTo);
-        if (row >= 0 && row < channelRows.size() && channelScroll != null) {
-            View target = channelRows.get(row);
-            channelScroll.post(() -> {
-                if (row >= channelRows.size() || channelRows.get(row) != target) return;
-                int y = target.getTop();
-                int scrollY = channelScroll.getScrollY();
-                int viewport = channelScroll.getHeight();
-                if (y < scrollY || y + target.getHeight() > scrollY + viewport)
-                    channelScroll.smoothScrollTo(0, Math.max(0,y - viewport / 3));
-            });
-        }
+
+    }
+
+    private boolean anyChannelRowHasFocus() {
+        for (TextView row : channelRows) if (row.hasFocus()) return true;
+        return false;
+    }
+
+    private void keepChannelVisible(View target) {
+        if (channelScroll == null || target == null) return;
+        channelScroll.post(() -> {
+            if (channelScroll == null || target.getParent() != channelList) return;
+            int viewport = channelScroll.getHeight();
+            if (viewport <= 0) return;
+            int margin = Math.min(dp(10), viewport / 8);
+            int current = channelScroll.getScrollY();
+            // The rows are direct children of channelList.
+            int top = target.getTop();
+            int bottom = target.getBottom();
+            int destination = current;
+            if (top < current + margin) destination = top - margin;
+            else if (bottom > current + viewport - margin)
+                destination = bottom - viewport + margin;
+            if (destination != current) {
+                int max = Math.max(0, channelList.getHeight() - viewport);
+                channelScroll.scrollTo(0, Math.max(0, Math.min(destination, max)));
+            }
+        });
     }
 
     private void dismissKeyboard() {
