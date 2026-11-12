@@ -1,6 +1,18 @@
 package com.brave.simplem3uplayer;
 
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.Manifest;
+import android.content.pm.PackageManager;
+import android.os.Build;
+import android.os.Environment;
+import android.graphics.Rect;
+import android.view.MotionEvent;
+import android.widget.EditText;
+import java.io.File;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
@@ -51,11 +63,15 @@ import java.util.Map;
 
 public class MainActivity extends Activity {
     private static final int PICK_M3U = 1001;
-    private static final int ACCENT = Color.rgb(44, 168, 255);
-    private static final int PANEL = Color.rgb(12, 24, 40);
-    private static final int PANEL_LIGHT = Color.rgb(20, 38, 62);
+    private static final int READ_FILE_PERMISSION = 1002;
+    private static final int ACCENT = Color.rgb(72, 152, 235);
+    private static final int ACTIVE = Color.rgb(255, 163, 0);
+    private static final int BACKGROUND = Color.rgb(10, 14, 23); // #0a0e17
+    private static final int SURFACE = Color.rgb(13, 13, 13); // #0d0d0d
+    private static final int PANEL = SURFACE;
+    private static final int PANEL_LIGHT = Color.rgb(28, 28, 28);
     private static final int MUTED = Color.rgb(174, 194, 220);
-    private static final int DIVIDER = Color.rgb(36, 64, 98);
+    private static final int DIVIDER = Color.rgb(52, 52, 52);
     private static final long LOAD_TIMEOUT_MS = 3200L;
     private static final long REBUFFER_TIMEOUT_MS = 12000L;
     private static final long MAX_RETRY_DELAY_MS = 15000L;
@@ -72,11 +88,12 @@ public class MainActivity extends Activity {
     private ScrollView channelScroll;
     private TextView stateLabel, playlistButton, retryAttemptsValue, retryDelayValue, fullButton;
     private ProgressBar spinner;
-    private Button previous, next, toggleList, fullscreenButton, retryButton;
+    private Button previous, next, toggleList, fullscreenButton, retryButton, settingsButton, openButton;
     private Switch autoSwitch, retrySwitch, fullscreenSwitch;
     private View settingsOverlay;
     private View settingsTrigger;
     private View topFullscreenTrigger;
+    private AlertDialog fileDialog;
     private boolean compactUi;
     private boolean televisionUi;
 
@@ -124,7 +141,7 @@ public class MainActivity extends Activity {
         GradientDrawable d = new GradientDrawable(); d.setColor(color); d.setCornerRadius(dp(radius)); return d;
     }
     private GradientDrawable outline(int color, int border, int radius) {
-        GradientDrawable d = bg(color, radius); d.setStroke(dp(1), border); return d;
+        GradientDrawable d = bg(color, radius); d.setStroke(2, border); return d;
     }
     private TextView text(String value, int size, int color) {
         TextView t = new TextView(this); t.setText(value); t.setTextSize(size);
@@ -134,16 +151,23 @@ public class MainActivity extends Activity {
         TextView t = text(value,size,color); t.setTypeface(Typeface.DEFAULT, Typeface.BOLD); return t;
     }
     private Button action(String caption) {
-        Button b = new Button(this); b.setText(caption); b.setAllCaps(false);
-        b.setTextSize(13); b.setTextColor(Color.WHITE); b.setBackground(outline(Color.rgb(8, 18, 30), ACCENT, 8));
-        b.setMinWidth(0); b.setMinimumWidth(0); b.setPadding(dp(8), dp(4), dp(8), dp(4));
-        b.setSingleLine(true); b.setEllipsize(TextUtils.TruncateAt.END);
-        focusStyle(b, Color.rgb(8, 12, 18), ACCENT);
+        Button b = new Button(this);
+        b.setText(caption);
+        b.setAllCaps(false);
+        b.setTextSize(22);
+        b.setIncludeFontPadding(false);
+        b.setTextColor(Color.WHITE);
+        b.setGravity(Gravity.CENTER);
+        b.setMinWidth(0); b.setMinimumWidth(0);
+        b.setMinHeight(0); b.setMinimumHeight(0);
+        b.setPadding(0, 0, 0, 0);
+        b.setSingleLine(true);
+        focusStyle(b, SURFACE, ACCENT);
         return b;
     }
     private void focusStyle(View v, int regular, int focused) {
-        GradientDrawable normal = outline(regular, ACCENT, 8);
-        GradientDrawable highlight = outline(focused, Color.WHITE, 8);
+        GradientDrawable normal = outline(regular, ACCENT, 6);
+        GradientDrawable highlight = outline(focused, Color.WHITE, 6);
         StateListDrawable state = new StateListDrawable();
         state.addState(new int[]{android.R.attr.state_focused}, highlight);
         state.addState(new int[]{android.R.attr.state_pressed}, highlight);
@@ -151,15 +175,12 @@ public class MainActivity extends Activity {
         v.setBackground(state);
         v.setFocusable(true);
         v.setFocusableInTouchMode(false);
-        if (v instanceof TextView) {
-            TextView text = (TextView)v;
-            text.setOnFocusChangeListener((view, hasFocus) -> text.setTextColor(Color.WHITE));
-        }
+        if (v instanceof TextView) ((TextView)v).setTextColor(Color.WHITE);
     }
     private void focusHeader(TextView v) {
         v.setGravity(Gravity.CENTER);
-        v.setPadding(dp(6), dp(4), dp(6), dp(4));
-        focusStyle(v, Color.rgb(6, 14, 26), ACCENT);
+        v.setPadding(0, 0, 0, 0);
+        focusStyle(v, SURFACE, ACCENT);
     }
     private void pingControls() {
         showControlsTemporarily();
@@ -167,9 +188,8 @@ public class MainActivity extends Activity {
 
     private void showControlsTemporarily() {
         controlsVisible = true;
-        if (topBar != null) topBar.setVisibility(View.VISIBLE);
         if (controlBar != null) controlBar.setVisibility(View.VISIBLE);
-        if (!fullscreen && sidebar != null) sidebar.setVisibility(showList ? View.VISIBLE : View.GONE);
+        updateSidebarVisibility();
         scheduleAutoHide();
     }
 
@@ -180,155 +200,150 @@ public class MainActivity extends Activity {
     }
 
     private void hideControlsIfIdle() {
+        if (settingsOverlay != null || fileDialog != null) return;
         controlsVisible = false;
-        if (settingsOverlay != null) return;
-        if (topBar != null) topBar.setVisibility(View.GONE);
         if (controlBar != null) controlBar.setVisibility(View.GONE);
-        if (fullscreen && sidebar != null) sidebar.setVisibility(View.GONE);
+        if (televisionUi && videoFrame != null) videoFrame.requestFocus();
     }
 
     private void toggleControlsVisibility() {
         if (controlsVisible) {
             if (hideControlsRunnable != null) handler.removeCallbacks(hideControlsRunnable);
             hideControlsIfIdle();
-        } else {
-            showControlsTemporarily();
-        }
+        } else showControlsTemporarily();
     }
 
     private void status(TextView dot) {
         LinearLayout bar = new LinearLayout(this);
         bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setPadding(dp(8), dp(2), dp(8), dp(2));
-        bar.addView(dot, new LinearLayout.LayoutParams(dp(24), -1));
-        stateLabel = text("Select an M3U playlist", compactUi ? 12 : 13, Color.WHITE);
+        bar.setPadding(dp(10), dp(2), dp(10), dp(2));
+        bar.setBackgroundColor(0xB8000000);
+        dot.setGravity(Gravity.CENTER);
+        bar.addView(dot, new LinearLayout.LayoutParams(dp(24), dp(30)));
+        stateLabel = text("Select an M3U playlist", 13, Color.WHITE);
         stateLabel.setMaxLines(2);
         stateLabel.setEllipsize(TextUtils.TruncateAt.END);
         bar.addView(stateLabel, new LinearLayout.LayoutParams(0, -1, 1));
-        if (compactUi) controlBar.addView(bar, new LinearLayout.LayoutParams(-1, dp(32)));
-        else controlBar.addView(bar, new LinearLayout.LayoutParams(0, -1, 1.5f));
+        FrameLayout.LayoutParams st = new FrameLayout.LayoutParams(-1,dp(36), Gravity.BOTTOM);
+        videoFrame.addView(bar,st);
     }
     private void buildUi() {
-        mainFrame = new FrameLayout(this); mainFrame.setBackgroundColor(Color.BLACK);
-        LinearLayout screen = new LinearLayout(this); screen.setOrientation(LinearLayout.VERTICAL);
-        mainFrame.addView(screen, new FrameLayout.LayoutParams(-1,-1));
+        mainFrame = new FrameLayout(this);
+        mainFrame.setBackgroundColor(BACKGROUND);
+        LinearLayout screen = new LinearLayout(this);
+        screen.setOrientation(LinearLayout.VERTICAL);
+        mainFrame.addView(screen, new FrameLayout.LayoutParams(-1, -1));
 
-        topBar = new LinearLayout(this); topBar.setGravity(Gravity.CENTER_VERTICAL);
-        topBar.setPadding(dp(8), dp(3), dp(8), dp(3)); topBar.setBackgroundColor(Color.rgb(6, 14, 26));
-        TextView logo = bold("▣", compactUi ? 19 : 27, ACCENT);
-        logo.setGravity(Gravity.CENTER);
-        topBar.addView(logo, new LinearLayout.LayoutParams(dp(compactUi ? 25 : 42),-1));
-        TextView title = bold(compactUi ? "M3U TV" : "Simple M3U TV",compactUi ? 16 : 23,Color.WHITE);
-        title.setSingleLine(true); title.setEllipsize(TextUtils.TruncateAt.END);
-        topBar.addView(title, new LinearLayout.LayoutParams(0,-1,1));
-        TextView settings = bold("⚙", compactUi ? 22 : 18, Color.WHITE);
-        focusHeader(settings);
-        settings.setContentDescription("Settings");
-        settings.setOnClickListener(v -> { pingControls(); showSettings(); });
-        LinearLayout.LayoutParams settingsLp = new LinearLayout.LayoutParams(dp(compactUi ? 44 : 46), dp(compactUi ? 40 : 46)); settingsLp.setMargins(dp(6),0,dp(6),0); topBar.addView(settings, settingsLp);
-        settingsTrigger = settings;
-        TextView full = bold("⛶", compactUi ? 22 : 18, Color.WHITE);
-        focusHeader(full);
-        full.setContentDescription("Toggle fullscreen");
-        full.setOnClickListener(v -> { pingControls(); toggleFullscreen(); });
-        LinearLayout.LayoutParams fullLp = new LinearLayout.LayoutParams(dp(compactUi ? 44 : 46), dp(compactUi ? 40 : 46)); fullLp.setMargins(dp(6),0,dp(6),0); topBar.addView(full, fullLp);
-        topFullscreenTrigger = full;
-        if (!compactUi) {
-            TextClock clock = new TextClock(this); clock.setFormat24Hour("HH:mm"); clock.setFormat12Hour("HH:mm");
-            clock.setTextColor(Color.WHITE); clock.setTextSize(16);
-            clock.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
-            clock.setPadding(dp(10),0,0,0); topBar.addView(clock);
-        }
-        screen.addView(topBar, new LinearLayout.LayoutParams(-1,dp(compactUi ? 48 : 64)));
-
-        LinearLayout center = new LinearLayout(this); center.setOrientation(LinearLayout.HORIZONTAL);
-        videoFrame = new FrameLayout(this); videoFrame.setBackgroundColor(Color.BLACK);
-        playerView = new PlayerView(this); playerView.setUseController(false); playerView.setKeepContentOnPlayerReset(true);
+        LinearLayout center = new LinearLayout(this);
+        center.setOrientation(LinearLayout.HORIZONTAL);
+        videoFrame = new FrameLayout(this);
+        videoFrame.setBackgroundColor(BACKGROUND);
+        videoFrame.setFocusable(televisionUi);
+        playerView = new PlayerView(this);
+        playerView.setUseController(false);
+        playerView.setKeepContentOnPlayerReset(true);
         playerView.setFocusable(false);
-        playerView.setOnClickListener(v -> { if (settingsOverlay != null) dismissSettings(); else toggleControlsVisibility(); });
-        videoFrame.addView(playerView,new FrameLayout.LayoutParams(-1,-1));
+        videoFrame.addView(playerView, new FrameLayout.LayoutParams(-1, -1));
         spinner = new ProgressBar(this);
-        videoFrame.addView(spinner,new FrameLayout.LayoutParams(dp(40),dp(40),Gravity.CENTER));
+        videoFrame.addView(spinner, new FrameLayout.LayoutParams(dp(40),dp(40),Gravity.CENTER));
         spinner.setVisibility(View.GONE);
-        videoFrame.setOnClickListener(v -> { if (settingsOverlay != null) dismissSettings(); else toggleControlsVisibility(); });
-        center.addView(videoFrame,new LinearLayout.LayoutParams(0,-1,1));
+        status(bold("●",18,ACTIVE));
+        center.addView(videoFrame, new LinearLayout.LayoutParams(0, -1, 1));
 
-        sidebar = new LinearLayout(this); sidebar.setOrientation(LinearLayout.VERTICAL);
-        sidebar.setBackgroundColor(PANEL);
-        playlistButton = bold("Change playlist",compactUi ? 13 : 14,ACCENT);
-        playlistButton.setPadding(dp(10),dp(4),dp(6),dp(4));
+        sidebar = new LinearLayout(this);
+        sidebar.setOrientation(LinearLayout.VERTICAL);
+        sidebar.setBackgroundColor(SURFACE);
+        playlistButton = bold("Channels",compactUi ? 13 : 15,ACTIVE);
         playlistButton.setGravity(Gravity.CENTER_VERTICAL);
-        playlistButton.setSingleLine(true); playlistButton.setEllipsize(TextUtils.TruncateAt.END);
-        focusStyle(playlistButton,PANEL_LIGHT,ACCENT);
-        playlistButton.setOnClickListener(v -> pickPlaylist());
+        playlistButton.setPadding(dp(12),dp(2),dp(8),dp(2));
+        playlistButton.setSingleLine(true);
+        playlistButton.setEllipsize(TextUtils.TruncateAt.END);
+        playlistButton.setTextColor(ACTIVE);
+        playlistButton.setFocusable(false);
         sidebar.addView(playlistButton,new LinearLayout.LayoutParams(-1,dp(48)));
-        View divider = new View(this); divider.setBackgroundColor(DIVIDER);
+        View divider = new View(this);
+        divider.setBackgroundColor(DIVIDER);
         sidebar.addView(divider,new LinearLayout.LayoutParams(-1,dp(1)));
-        channelScroll = new ScrollView(this); channelScroll.setFillViewport(true);
+        channelScroll = new ScrollView(this);
+        channelScroll.setFillViewport(true);
         channelScroll.setDescendantFocusability(android.view.ViewGroup.FOCUS_AFTER_DESCENDANTS);
-        channelList = new LinearLayout(this); channelList.setOrientation(LinearLayout.VERTICAL);
+        channelList = new LinearLayout(this);
+        channelList.setOrientation(LinearLayout.VERTICAL);
         channelScroll.addView(channelList);
         sidebar.addView(channelScroll,new LinearLayout.LayoutParams(-1,0,1));
-        int sidebarWidth = compactUi ? Math.max(dp(150), getResources().getDisplayMetrics().widthPixels * 44 / 100) : dp(275);
+        int widthPx = getResources().getDisplayMetrics().widthPixels;
+        int sidebarWidth = compactUi ? Math.max(dp(145), widthPx * 38 / 100) : dp(275);
         center.addView(sidebar,new LinearLayout.LayoutParams(sidebarWidth,-1));
         screen.addView(center,new LinearLayout.LayoutParams(-1,0,1));
 
         controlBar = new LinearLayout(this);
-        controlBar.setOrientation(compactUi ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
-        controlBar.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
-        controlBar.setPadding(dp(6),dp(4),dp(6),dp(4));
-        controlBar.setBackgroundColor(Color.rgb(7, 16, 28));
+        controlBar.setOrientation(LinearLayout.HORIZONTAL);
+        controlBar.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
+        controlBar.setPadding(dp(6),dp(3),dp(6),dp(3));
+        controlBar.setBackgroundColor(BACKGROUND);
+        HorizontalScrollView scroll = new HorizontalScrollView(this);
+        scroll.setHorizontalScrollBarEnabled(false);
+        scroll.setFillViewport(false);
+        buttonsRow = new LinearLayout(this);
+        buttonsRow.setOrientation(LinearLayout.HORIZONTAL);
+        buttonsRow.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
+        scroll.addView(buttonsRow, new android.widget.FrameLayout.LayoutParams(-2,dp(56)));
+        controlBar.addView(scroll,new LinearLayout.LayoutParams(-1,dp(56)));
+
         previous = action("◀");
         toggleList = action("☷");
         next = action("▶");
+        openButton = action("▤");
+        settingsButton = action("⚙");
         fullscreenButton = action("⛶");
         retryButton = action("↻");
         previous.setContentDescription("Previous channel");
         toggleList.setContentDescription("Show or hide channels");
         next.setContentDescription("Next channel");
+        openButton.setContentDescription("Open M3U playlist");
+        settingsButton.setContentDescription("Settings");
         fullscreenButton.setContentDescription("Toggle fullscreen");
         retryButton.setContentDescription("Retry stream");
-        TextView dot = bold("●",20,ACCENT);
-        if (compactUi) status(dot);
-        if (compactUi) {
-            HorizontalScrollView hscroll = new HorizontalScrollView(this);
-            hscroll.setHorizontalScrollBarEnabled(false); hscroll.setFillViewport(true);
-            buttonsRow = new LinearLayout(this);
-            buttonsRow.setOrientation(LinearLayout.HORIZONTAL);
-            buttonsRow.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
-            hscroll.addView(buttonsRow,new android.widget.FrameLayout.LayoutParams(-2,dp(49)));
-            controlBar.addView(hscroll,new LinearLayout.LayoutParams(-1,dp(50)));
-        } else {
-            buttonsRow = controlBar;
-        }
-        addControl(previous, 1f);
-        addControl(toggleList, 1.1f);
-        addControl(next, 1f);
-        if (!compactUi) status(dot);
-        addControl(fullscreenButton, 1.1f);
-        addControl(retryButton, 0.9f);
-        screen.addView(controlBar,new LinearLayout.LayoutParams(-1,dp(compactUi ? 91 : 72)));
-        controlBar.bringToFront();
+        addControl(previous); addControl(toggleList); addControl(next);
+        addControl(openButton); addControl(settingsButton); addControl(fullscreenButton); addControl(retryButton);
+        screen.addView(controlBar,new LinearLayout.LayoutParams(-1,dp(62)));
+        settingsTrigger = settingsButton;
+        topFullscreenTrigger = fullscreenButton;
 
         previous.setOnClickListener(v -> { pingControls(); move(-1); });
         next.setOnClickListener(v -> { pingControls(); move(1); });
-        toggleList.setOnClickListener(v -> { pingControls(); setListVisible(!showList); if(showList && !channelRows.isEmpty()) channelRows.get(Math.max(0,index)).requestFocus(); });
+        toggleList.setOnClickListener(v -> {
+            pingControls(); setListVisible(!showList);
+            if(showList && !channelRows.isEmpty()) channelRows.get(Math.max(0,index)).requestFocus();
+        });
+        openButton.setOnClickListener(v -> { pingControls(); pickPlaylist(); });
+        settingsButton.setOnClickListener(v -> { pingControls(); showSettings(); });
         fullscreenButton.setOnClickListener(v -> { pingControls(); toggleFullscreen(); });
         retryButton.setOnClickListener(v -> { pingControls(); if(index >= 0) selectChannel(index,true); });
+
         setContentView(mainFrame);
         updateSidebarVisibility(); updateButtons();
         showControlsTemporarily();
         if (televisionUi) toggleList.requestFocus();
     }
-    private void addControl(Button b, float weight) {
-        LinearLayout.LayoutParams p;
-        if (compactUi) {
-            p = new LinearLayout.LayoutParams(dp(54),dp(46));
-        } else {
-            p = new LinearLayout.LayoutParams(dp(72),dp(54));
+
+    private void addControl(Button b) {
+        // Fixed square icons. The horizontal scroll keeps a SINGLE row on small displays.
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(50),dp(50));
+        lp.setMargins(dp(4),0,dp(4),0);
+        buttonsRow.addView(b,lp);
+    }
+
+    @Override public boolean dispatchTouchEvent(MotionEvent event) {
+        if (event.getAction() == MotionEvent.ACTION_UP && fileDialog == null && settingsOverlay == null
+                && videoFrame != null) {
+            Rect r = new Rect();
+            if (videoFrame.getGlobalVisibleRect(r) && r.contains((int)event.getRawX(),(int)event.getRawY())) {
+                toggleControlsVisibility();
+                return true;
+            }
         }
-        p.setMargins(dp(3),0,dp(3),0);
-        buttonsRow.addView(b,p);
+        return super.dispatchTouchEvent(event);
     }
     private void showSettings() {
         if (settingsOverlay != null) return;
@@ -372,10 +387,11 @@ public class MainActivity extends Activity {
         addHint(content,"Hide Android system bars and optionally the channel list.");
         fullscreenSwitch.setOnCheckedChangeListener((button,enabled) -> { if (fullscreen != enabled) toggleFullscreen(); });
         addRule(content);
-        TextView about = text("About  ·  Simple M3U TV v1.6.0\nAndroid 6.0+  ·  Powered by Media3",13,MUTED);
+        TextView about = text("About  ·  Simple M3U TV v1.7.0\nAndroid 6.0+  ·  Powered by Media3",13,MUTED);
         about.setPadding(0,dp(14),0,dp(14)); content.addView(about);
         mainFrame.addView(shade,new FrameLayout.LayoutParams(-1,-1));
         settingsOverlay = shade;
+        if (hideControlsRunnable != null) handler.removeCallbacks(hideControlsRunnable);
         if (televisionUi) close.requestFocus();
     }
     private Switch createSwitch(String name, boolean selected, LinearLayout parent) {
@@ -409,6 +425,7 @@ public class MainActivity extends Activity {
     }
     private void dismissSettings() {
         if (settingsOverlay != null) { mainFrame.removeView(settingsOverlay); settingsOverlay = null; }
+        showControlsTemporarily();
     }
     private void setListVisible(boolean enabled) {
         showList = enabled;
@@ -437,11 +454,137 @@ public class MainActivity extends Activity {
     @Override public void onWindowFocusChanged(boolean focused) { super.onWindowFocusChanged(focused); if (focused) applyFullscreen(); }
 
     private void pickPlaylist() {
-        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.setType("*/*");
-        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
-        startActivityForResult(intent, PICK_M3U);
+        // TV ROMs (especially Android 7) often ship a broken or absent DocumentsUI.
+        // Use our D-pad-friendly browser instead of relying on ACTION_OPEN_DOCUMENT.
+        if (Build.VERSION.SDK_INT <= 25 || (televisionUi && Build.VERSION.SDK_INT <= 28)) {
+            openLegacyFileBrowser();
+        } else {
+            openSystemPicker();
+        }
+    }
+
+    private void openSystemPicker() {
+        try {
+            Intent intent = new Intent(Build.VERSION.SDK_INT >= 19
+                    ? Intent.ACTION_OPEN_DOCUMENT : Intent.ACTION_GET_CONTENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("*/*");
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+            startActivityForResult(intent, PICK_M3U);
+        } catch (Exception error) {
+            // Useful fallback when the firmware lacks a documents provider.
+            if (Build.VERSION.SDK_INT <= 32) openLegacyFileBrowser();
+            else Toast.makeText(this,"No compatible file manager available",Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void openLegacyFileBrowser() {
+        if (Build.VERSION.SDK_INT >= 23 && Build.VERSION.SDK_INT <= 32
+                && checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.READ_EXTERNAL_STORAGE},READ_FILE_PERMISSION);
+            return;
+        }
+        showStorageRoots();
+    }
+
+    @Override public void onRequestPermissionsResult(int requestCode,String[] permissions,int[] results) {
+        super.onRequestPermissionsResult(requestCode,permissions,results);
+        if(requestCode == READ_FILE_PERMISSION) {
+            if(results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) showStorageRoots();
+            else new AlertDialog.Builder(this).setTitle("Storage access required")
+                    .setMessage("Allow storage access to browse playlists on this Android TV box. You can also try the system file picker.")
+                    .setPositiveButton("System picker",(d,w) -> openSystemPicker())
+                    .setNegativeButton("Cancel",null).show();
+        }
+    }
+
+    private void showStorageRoots() {
+        LinkedHashMap<String,File> roots = new LinkedHashMap<>();
+        File primary = Environment.getExternalStorageDirectory();
+        if(primary != null) roots.put("Internal storage",primary);
+        File downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+        if(downloads != null) roots.put("Downloads",downloads);
+        File storage = new File("/storage");
+        File[] list = storage.listFiles();
+        if(list != null) for(File root:list) {
+            if(root.isDirectory() && !root.getName().equals("self") && !root.getName().equals("emulated"))
+                roots.put("Storage: " + root.getName(),root);
+        }
+        File[] externals = getExternalFilesDirs(null);
+        if(externals != null) for(File external: externals) if(external != null) {
+            File parent = external;
+            for(int n=0;n<4 && parent.getParentFile()!=null;n++) parent=parent.getParentFile();
+            if(parent.isDirectory() && parent.canRead()) roots.put("External: " + parent.getName(),parent);
+        }
+        List<String> labels = new ArrayList<>(roots.keySet());
+        labels.add("Use Android system file picker");
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Select M3U playlist — storage")
+                .setItems(labels.toArray(new String[0]),(d,which)-> {
+                    if(which == roots.size()) openSystemPicker();
+                    else browseDirectory(new ArrayList<>(roots.values()).get(which));
+                })
+                .setNegativeButton("Cancel",(d,which)->showControlsTemporarily()).create();
+        showBrowserDialog(dialog);
+    }
+
+    private boolean isPlaylistFile(File f) {
+        String n = f.getName().toLowerCase(Locale.ROOT);
+        return f.isFile() && (n.endsWith(".m3u") || n.endsWith(".m3u8"));
+    }
+
+    private void browseDirectory(File dir) {
+        if(dir == null || !dir.isDirectory() || !dir.canRead()) {
+            Toast.makeText(this,"Folder is not readable",Toast.LENGTH_LONG).show();
+            showStorageRoots();
+            return;
+        }
+        File[] all = dir.listFiles();
+        if(all == null) all = new File[0];
+        List<File> entries = new ArrayList<>();
+        for(File file:all) if(file.isDirectory() || isPlaylistFile(file)) entries.add(file);
+        entries.sort((a,b)-> {
+            if(a.isDirectory() != b.isDirectory()) return a.isDirectory() ? -1 : 1;
+            return a.getName().compareToIgnoreCase(b.getName());
+        });
+        List<String> labels = new ArrayList<>();
+        labels.add("..  Parent folder / Storage roots");
+        for(File f:entries) labels.add((f.isDirectory()?"[Folder]  ":"[M3U]  ")+f.getName());
+        if(entries.isEmpty()) labels.add("No M3U files in this folder");
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(dir.getAbsolutePath())
+                .setItems(labels.toArray(new String[0]),(d,which)-> {
+                    if(which == 0) {
+                        File parent=dir.getParentFile();
+                        if(parent != null && parent.canRead()) browseDirectory(parent);
+                        else showStorageRoots();
+                    } else if(which-1 < entries.size()) {
+                        File f=entries.get(which-1);
+                        if(f.isDirectory()) browseDirectory(f);
+                        else openPlaylistUri(Uri.fromFile(f));
+                    } else browseDirectory(dir);
+                })
+                .setNegativeButton("Storage roots",(d,w)->showStorageRoots())
+                .setNeutralButton("System picker",(d,w)->openSystemPicker()).create();
+        showBrowserDialog(dialog);
+    }
+
+    private void showBrowserDialog(AlertDialog dialog) {
+        if(fileDialog != null) fileDialog.dismiss();
+        fileDialog=dialog;
+        dialog.setOnDismissListener(d -> {
+            if (fileDialog == dialog) {fileDialog=null;showControlsTemporarily();}
+        });
+        dialog.show();
+    }
+
+    private void openPlaylistUri(Uri uri) {
+        if(loadPlaylist(uri)) {
+            prefs.edit().putString("playlist_uri",uri.toString()).putInt("channel_index",0).apply();
+            retryCount=0;
+            selectChannel(0,true);
+        }
+        showControlsTemporarily();
     }
 
     @Override
@@ -453,11 +596,7 @@ public class MainActivity extends Activity {
             getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
         } catch (SecurityException ignored) {
         }
-        if (loadPlaylist(uri)) {
-            prefs.edit().putString("playlist_uri", uri.toString()).putInt("channel_index", 0).apply();
-            retryCount = 0;
-            selectChannel(0, true);
-        }
+        openPlaylistUri(uri);
     }
 
     private boolean loadPlaylist(Uri uri) {
@@ -473,7 +612,7 @@ public class MainActivity extends Activity {
             index = -1;
             retryCount = 0;
             failureCount = 0;
-            playlistButton.setText("Change playlist (" + channels.size() + " channels)");
+            playlistButton.setText("Channels (" + channels.size() + ")");
             populateChannels();
             updateButtons();
             return true;
@@ -519,7 +658,7 @@ public class MainActivity extends Activity {
             TextView t = channelRows.get(i);
             boolean selected = i == index;
             boolean focused = t.hasFocus();
-            t.setBackground(outline(selected ? ACCENT : (focused ? PANEL_LIGHT : PANEL), focused ? ACCENT : (selected ? ACCENT : PANEL), 3));
+            t.setBackground(outline(selected ? ACTIVE : (focused ? PANEL_LIGHT : PANEL), focused ? ACCENT : (selected ? ACTIVE : PANEL), 2));
             t.setTextColor(selected ? Color.BLACK : (focused ? Color.WHITE : Color.rgb(215, 215, 215)));
             t.setTypeface(null, selected ? Typeface.BOLD : Typeface.NORMAL);
         }
@@ -689,7 +828,12 @@ public class MainActivity extends Activity {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
-        if (event.getAction() == KeyEvent.ACTION_DOWN) pingControls();
+        if (event.getAction() == KeyEvent.ACTION_DOWN) {
+            if (!controlsVisible && (event.getKeyCode() == KeyEvent.KEYCODE_DPAD_CENTER || event.getKeyCode() == KeyEvent.KEYCODE_ENTER)) {
+                showControlsTemporarily(); return true;
+            }
+            pingControls();
+        }
         if (televisionUi && event.getAction() == KeyEvent.ACTION_DOWN) {
             int key = event.getKeyCode();
             if (key == KeyEvent.KEYCODE_MEDIA_NEXT || key == KeyEvent.KEYCODE_CHANNEL_UP) {
