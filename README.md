@@ -1,9 +1,27 @@
+# Simple M3U TV
+
+A lightweight **M3U/M3U8 playlist player** for Android TV and phones, built with Kotlin and Media3.
+
+![Android](https://img.shields.io/badge/Android-6.0%2B-green)
+![Android TV](https://img.shields.io/badge/Android%20TV-D--pad%20ready-blue)
+![Kotlin](https://img.shields.io/badge/Kotlin-Media3-purple)
+
+## ✨ Features
+
+- 📺 Optimized for Android TV with full D-pad navigation
+- 🔍 Instant channel search by **name** or **channel number**
+- 📂 Load local M3U / M3U8 playlists from device storage
+- 🎯 Orange focus cursor follows the selected row (not the playing one)
+- 🔔 Media3 playback with system media controls
+- 🪶 Minimal UI — no accounts, no ads, no tracking
+- 📱 Works on phones too (Android 6.0+)
+
+![Screenshot](ui.png)
+
 ## ☕ Support Me
 If you find this project helpful, you can buy me a coffee!
 
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-☕-yellow.svg)](https://buymeacoffee.com/kristodigiorgio)
-
-# Simple M3U TV v1.8.0
 
 ## New: Channel search
 
