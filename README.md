@@ -1,3 +1,8 @@
+## ☕ Support Me
+If you find this project helpful, you can buy me a coffee!
+
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-☕-yellow.svg)](https://buymeacoffee.com/kristodigiorgio)
+
 # Simple M3U TV v1.8.0
 
 ## New: Channel search
